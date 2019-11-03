@@ -1,0 +1,68 @@
+#!/usr/bin/env python
+# -*- coding: UTF-8 -*-
+
+## submit a task!
+
+import sys
+import os
+import getpass
+import time
+import rutils
+
+
+def run(c_askcpu,c_askmem,c_sh):
+	installpath = rutils.get_installpath()
+	username = getpass.getuser()
+	
+	lock = rutils.Lock()
+	lock.get()
+
+	fo = open(installpath + "/spool/tasks","a")
+	fid = open(installpath+ "/spool/taskid","r")
+	try:
+		taskid = int(fid.read().strip())
+	except:
+		fid = open(installpath+ "/spool/taskid.bak","r")
+		taskid = int(fid.read().strip())
+	fid.close()
+
+	if os.path.isfile(c_sh):
+		fid = open(installpath+ "/spool/taskid","w")
+		fid.write(str(taskid + 1)+"\n")
+		fid.close()
+		cmdxxx = "cp %s/spool/taskid %s/spool/taskid.bak"%(installpath,installpath)
+		os.system(cmdxxx)
+
+		c_dir = os.getcwd()
+		c_sh_dir  = os.path.dirname(os.path.abspath(c_sh))
+		c_sh_name = os.path.basename(c_sh)
+		### cpu_active, mem_active,state_active
+		fo.write("\t".join([str(taskid),username, c_dir, c_sh_dir ,c_sh_name, str(c_askcpu), str(c_askmem), "Q","0.0","0","0","0.0","0",""])+"\n")  # 这个文件写在wait 区， 然后server 调用，写入running 区
+		ret = 0
+	else:
+		sys.stderr.write("[ERROR] %s is not a file\n"%c_sh)
+		ret = 1
+	fo.close()
+	lock.release()
+	return ret
+
+from optparse import OptionParser,OptionGroup
+if __name__ == "__main__":
+	usage = "usage: %prog [options] run.sh"
+	description = "Contact: Rong Zhengqin <rongzhengqin@basepedia.com>"
+	parser = OptionParser(usage,version="%prog 1.0.1 beta",description = description)
+
+	Common_group = OptionGroup(parser,'Common Options')
+	Common_group.add_option('-t',dest='threads',help='number of threads used, default=1',metavar='INT',type='int',default=1)
+	Common_group.add_option('-m',dest='memory',help='number of memory(G or M) used, default=10M',metavar='STR',type='string',default="10M")
+	
+	parser.add_option_group(Common_group)
+
+	(options, args) = parser.parse_args()
+	if len(args) != 1:
+		parser.print_help()
+		sys.exit(1)
+	threads = int(options.threads)
+	intmem = rutils.mem_h2k(options.memory)
+	sys.exit(run(threads,intmem,args[0]))
+

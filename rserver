@@ -1,0 +1,120 @@
+#!/usr/bin/env python
+# -*- coding: UTF-8 -*-
+
+## submit a task!
+
+# 查询到当前所使用的全部的资源水平，需要，正在run 的任务的id 和 pid， 以及正在等待的任务的id
+import sys
+import os
+#import getpass
+import rutils
+import time
+from optparse import OptionParser,OptionGroup
+
+def run_script():
+	lock = rutils.Lock()
+	lock.get()
+	serverfile = rutils.get_installpath() + "/spool/config/server.pid"
+	f = open(serverfile,"w")
+	f.write(str(os.getpid())+"\n")
+	f.close()
+	lock.release()
+
+	while 1:
+		lock = rutils.Lock()
+		lock.get()
+		maxcpus,maxmemK,maxjobid = rutils.get_resource()	
+		tasks = open(rutils.get_installpath() + "/spool/tasks","r")
+		"""
+		cpu_active, mem_active,state_active,pid
+		fo.write("\t".join([str(taskid),username, c_dir, c_sh, str(c_askcpu), str(c_askmem), "Q","","","",""])+"\n")#这个文件写在wait 区，然后server 调用，写入running 区
+		"""
+		c_cpus = maxcpus; cmem = maxmemK
+		output = []
+		for line in tasks:
+			taskid,username,cwd,shdir,shcmd,askcpu,askmem,status,cpu_active, mem_active,time_active,max_cpu_active,max_mem_active,pid = line.strip("\n").split("\t")
+			askcpu = int(askcpu) 
+			askmem = int(askmem)
+			max_cpu_active = float(max_cpu_active)
+			max_mem_active = int(max_mem_active)
+			# status => "Q","R","C"
+			if status == "R":
+				"""
+				1. 判断是否还在执行，（pid 一致，并且sh 存在于命令行）
+				2. 是 则 获取 当前执行的内存，cpu 使用量，当前run 的时间
+				3. 否 则 释放 资源 ，把status 变成 C
+				"""
+				pid = int(pid)
+				ret = rutils.runcheck(taskid,username,cwd,shdir,shcmd,pid)
+				if ret is None:
+					status = "C"
+					output.append("\t".join([taskid,username,cwd,shdir,shcmd,str(askcpu),str(askmem),"C",cpu_active, mem_active,time_active,str(max_cpu_active),str(max_mem_active),""])+"\n")
+				else:
+					c_cpus -= askcpu; cmem -= askmem;
+					pid,pcpu,xs,pmem,rsz = ret
+					output.append("\t".join([taskid,username,cwd,shdir,shcmd,str(askcpu),str(askmem),"R",str(pcpu),str(rsz),str(xs),str(max(max_cpu_active,pcpu)),str(max(max_mem_active,rsz)),str(pid)])+"\n")
+			elif status == "C":
+				#1. continue，则不记录该记录，
+				continue
+			elif status == "Q":
+				"""
+				1. 判断是否满足资源，然后执行任务，记录pid，然后获取当前执行的内存，cpu 使用量，时间 00:00:00
+				2. 如果不满足，则保持不变，继续查看下一个任务是否满足，直到完全没有可用的c_cpus
+				"""
+				if c_cpus <= 0 or cmem <= 0: output.append(line)
+				elif c_cpus - askcpu < 0 or cmem - askmem < 0: output.append(line)
+				else:
+					c_cpus -= askcpu; cmem -= askmem;
+					pid = rutils.runcmd(taskid,username,cwd,shdir,shcmd)
+					output.append("\t".join([taskid,username,cwd,shdir,shcmd,str(askcpu),str(askmem),"R","0.0","0","0","0.0","0",str(pid)])+"\n")
+		tasks.close()
+		tasks = file(rutils.get_installpath() + "/spool/tasks","w")
+		for out in output:
+			tasks.write(out)
+		tasks.close()
+		lock.release()
+		time.sleep(8)
+	return 0
+
+
+def term_script():
+	lock = rutils.Lock()
+	lock.get()
+	serverfile = rutils.get_installpath() + "/spool/config/server.pid"
+	f = file(serverfile,"r")
+	try:
+		pid = int(f.read().strip())
+		os.kill(pid,9)
+		f.close()
+		f = file(serverfile,"w")
+		f.close()
+	except:
+		pass
+	lock.release()
+	return 0
+
+
+
+if __name__ == "__main__":
+	start_time = time.time()
+	usage = "usage: %prog [options]"
+	description = "Contact: Rong Zhengqin <rongzhengqin@basepedia.com>"
+	parser = OptionParser(usage,version="%prog 0.1",description = description)
+	Common_group = OptionGroup(parser,'Common Options')
+	Common_group.add_option('--run',dest='run',help='run server',action='store_true')
+	Common_group.add_option('--term',dest='term',help='kill server',action='store_true')
+	parser.add_option_group(Common_group)
+	
+	(options, args) = parser.parse_args()
+	if not options:
+		parser.print_help()
+		sys.exit(1)
+	if options.run:
+		run_script()
+		
+	if options.term:
+		term_script()
+	sys.exit(0)
+
+## 一旦投递，sh 路径和文件都获取得到， 获取用户id， pwd and cpu and mem resouce asked
+
