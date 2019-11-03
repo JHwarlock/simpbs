@@ -7,6 +7,12 @@ import subprocess
 import re
 import datetime
 import time
+
+if sys.version_info.major == 3:
+	import subprocess as cmdmode
+elif sys.version_info.major == 2:
+	import commands as cmdmode
+
 pt_pid =  re.compile("\([0-9]+\)")
 
 # rutils.killtasks(int(pid))
@@ -45,7 +51,7 @@ class Lock(object):
 		return 0 
 
 def getallpids(pid):
-	exitstatus, outtext = subprocess.getstatusoutput("/bin/pstree -p %d"%pid)
+	exitstatus, outtext = cmdmode.getstatusoutput("/bin/pstree -p %d"%pid)
 	allpids = pt_pid.findall(outtext)
 	pids = []
 	for tmppid in allpids:
@@ -67,7 +73,7 @@ def getallstat(cpid,pcpu,xs,stat,pmem,rsz,runcmd):
 	return pcpu,xs,pmem,rsz 
 def getpidstat(pid):
 	cmd = "/bin/ps -q %d -o pid,pcpu,cputime,stat,%%mem,rsz,args"%pid
-	exitstatus, outtext = subprocess.getstatusoutput(cmd)
+	exitstatus, outtext = cmdmode.getstatusoutput(cmd)
 	arr = outtext.strip().split("\n")
 	if len(arr) == 2:
 		subarr = arr[1].strip().split(None,6) # # PID %CPU     TIME STAT %MEM   RSZ COMMAND
